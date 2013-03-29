@@ -1,0 +1,193 @@
+#!/usr/bin/python
+
+import urllib2
+import json
+import sys
+import os
+from pylab import *
+from PIL import Image
+import datetime
+import time
+import subprocess
+import matplotlib.pyplot as plt
+
+def colored(string, color):
+  return '\033[' + color + 'm' + string + '\033[0m'
+
+def secondsToString(t):
+  h = ""
+  if t >= 3600:
+    h = str(t/3600) + ":"
+    t = t % 3600
+  m = str(t/60) + ":"
+  if (t/60 < 10):
+    m = "0" + m
+  s = str(t%60)
+  if t%60 < 10:
+    s = "0" + s
+  return h+m+s
+
+def paddedSecondsToString(t):
+  s = secondsToString(t) + "  \t"
+  if len(s) < 9:
+    s += "\t"
+  return s
+
+def main():
+  now = datetime.datetime.now()
+  date = now.strftime("%Y%m%d-%H%M%S")
+
+  auth = open('runkeeper_auth', 'r')
+  auths = auth.readlines()
+  runsSet = []
+  for token in auths:
+    request = urllib2.Request("https://api.runkeeper.com/fitnessActivities?page=0&pageSize=1000", 
+                              headers={"Authorization" : "Bearer %s" % token, 
+                                       "Accept": "application/vnd.com.runkeeper.FitnessActivityFeed+json"})
+    contents = urllib2.urlopen(request).read()
+    runsSet.append(json.loads(contents))
+
+  type = "Running"
+  if len(sys.argv) > 1:
+    type = sys.argv[1]
+  directory = "/tmp/runs-%s-%s" % (type, date)
+  os.makedirs(directory)
+
+  mileToKm = 1.609344
+  minDistance = 10000
+  maxDistance = 0
+  minSpeed = 10000
+  maxSpeed = 0
+
+  unsortedRunsSet = []
+
+  for runs in runsSet:
+    unsortedRuns = []
+    for run in runs["items"]:
+      if run["type"] != type:
+        continue
+      miles = run["total_distance"] / mileToKm * 0.001
+      km = run["total_distance"] * 0.001
+      speed = miles * 3600.0 / run["duration"]
+      speedKm = km * 3600.0 / run["duration"]
+      runTuple = {"l":miles, "lk":km, "t":int(round(run["duration"])), "s":speed, "sk":speedKm, "d":run["start_time"], "n":run["uri"]}
+      minDistance = min(minDistance, miles)
+      maxDistance = max(maxDistance, miles)
+      minSpeed = min(minSpeed, speed)
+      maxSpeed = max(maxSpeed, speed)
+      unsortedRuns.append(runTuple)
+    unsortedRunsSet.append(unsortedRuns)
+
+  viewers = []
+  envelopeXs = []
+  envelopeYs = []
+  i = 0
+  figures = 0
+  for unsortedRuns in unsortedRunsSet:
+    i += 1
+    if len(unsortedRuns) == 0:
+      print "No runs for user %s.\n" % i
+      continue
+    os.makedirs("%s/%s" % (directory, i))
+    j = 0
+    sortedByTimeRuns = reversed(unsortedRuns)
+    runSet = []
+    for nextRun in sortedByTimeRuns:
+      j += 1
+      figures += 1
+      runSet.append(nextRun)
+      sortedRuns = sorted(runSet, key=lambda run: run["l"] + 0.0001 * run["s"], reverse=True)
+      bestSpeed = 0
+      figure(figures, figsize=(8,8))
+      envelopeX = []
+      envelopeY = []
+      restX = []
+      restY = []
+      envelopeLineX = []
+      envelopeLineY = []
+      bestSpeedDistance = 0
+      envelopeLastRun = False
+      for run in sortedRuns:
+        color = "0"
+        envelope = False
+        if run == nextRun and run["s"] > bestSpeed:
+          color = "31"
+          envelope = True
+          envelopeLastRun = True
+        elif run["s"] > bestSpeed:
+          color = "33"
+          envelope = True
+        elif run == nextRun:
+          color = "32"
+        if envelope:
+          envelopeLineX.append(bestSpeed)
+          envelopeLineY.append(run["l"])
+          bestSpeed = run["s"]
+          bestSpeedDistance = run["l"]
+          envelopeX.append(run["s"])
+          envelopeY.append(run["l"])
+          envelopeLineX.append(run["s"])
+          envelopeLineY.append(run["l"])
+          plt.annotate("%.02fmi, %s" % (run["l"], secondsToString(run["t"])),
+                       xy = (run["s"], run["l"]),
+                       xytext = (-5, 5),
+                       textcoords = 'offset points',
+                       ha = "left", va = "bottom")
+        
+        else:
+          restY.append(run["l"])
+          restX.append(run["s"])
+        if j == len(unsortedRuns):
+          print colored(str("%.03f" % run["l"]) +
+                        " mi\t" +
+                        str("%.02f" % run["lk"]) +
+                        " km  \t" +
+                        paddedSecondsToString(run["t"]) +
+                        str("%.03f" % run["s"]) +
+                        " mi/h\t" + str("%.02f" % run["sk"]) +
+                        " km/h\t" + run["d"], color)
+      envelopeLineX.append(bestSpeed)
+      envelopeLineY.append(0)
+      if j == len(unsortedRuns):
+        envelopeXs.append(envelopeLineX)
+        envelopeYs.append(envelopeLineY)
+      xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1])
+      ylim([max(0, minDistance - 0.1), maxDistance + 0.1])
+      plot(envelopeLineX, envelopeLineY, 'y.', ms=0, linewidth=2.0, linestyle=':')
+      plot(envelopeX, envelopeY, 'y.', ms=15)
+      plot(restX, restY, 'b.', ms=15)
+      currentX = [ nextRun["s"] ]
+      currentY = [ nextRun["l"] ]
+      title("%s up to %s" % (type, nextRun["d"]))
+      xlabel("miles/h")
+      ylabel("miles")
+      plt.annotate("%.02fmi, %s" % (nextRun["l"], secondsToString(nextRun["t"])),
+                   xy = (nextRun["s"], nextRun["l"]),
+                   xytext = (-5, 5),
+                   textcoords = 'offset points',
+                   ha = "left", va = "bottom")
+      color = 'g.'
+      if envelopeLastRun:
+        color = 'r.'
+      plot(currentX, currentY, color, ms=15)
+      savefig('%s/%s/%s.png' % (directory, i, j))
+    viewers.append(subprocess.Popen(['eog', "%s/%s/%s.png" % (directory, i, j)]))
+    print
+  
+  if len(envelopeXs) > 1:
+    figure(figures + 1, figsize=(8,8))
+    xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1])
+    ylim([max(0, minDistance - 0.1), maxDistance + 0.1])
+    lineColors = [ 'g.', 'b.', 'y.', 'r.' ]
+    for ii in range(0, len(envelopeXs)):
+      plot(envelopeXs[ii], envelopeYs[ii], lineColors[ii % len(lineColors)], ms=0, linewidth=2.0, linestyle=':')
+    xlabel("miles/h")
+    ylabel("miles")
+    os.makedirs("%s/envelopes" % directory)
+    savefig('%s/envelopes/envelopes.png' % directory)
+    viewers.append(subprocess.Popen(['eog', "%s/envelopes/envelopes.png" % directory]))
+  
+  print("Images directories under %s" % directory)
+  for viewer in viewers:
+    viewer.wait()
+main()
