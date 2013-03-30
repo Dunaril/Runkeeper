@@ -152,10 +152,10 @@ def main():
       if j == len(unsortedRuns):
         envelopeXs.append(envelopeLineX)
         envelopeYs.append(envelopeLineY)
-        print "User %s\nMost recent first:" % i
+        print "User %s\nBy recency:" % i
         for timeSortedRun in unsortedRuns:
           print timeSortedRun["p"]
-        print "\nLongest first:"
+        print "\nBy distance:"
         for distanceSortedRun in sortedRuns:
           print distanceSortedRun["p"]
       xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1])
