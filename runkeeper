@@ -11,6 +11,8 @@ import time
 import subprocess
 import matplotlib.pyplot as plt
 
+mileToKm = 1.609344
+
 def colored(string, color):
   return '\033[' + color + 'm' + string + '\033[0m'
 
@@ -33,19 +35,25 @@ def paddedSecondsToString(t):
     s += "\t"
   return s
 
+def fetchActivities(token):
+  request = urllib2.Request("https://api.runkeeper.com/fitnessActivities?page=0&pageSize=1000", 
+                            headers={"Authorization" : "Bearer %s" % token, 
+                                     "Accept": "application/vnd.com.runkeeper.FitnessActivityFeed+json"})
+  return json.loads(urllib2.urlopen(request).read())
+
 def main():
-  now = datetime.datetime.now()
-  date = now.strftime("%Y%m%d-%H%M%S")
+  openGraphs = True
+  openEnvelopes = openGraphs
+  printByDistance = True
+  printByRecency = True
+
+  date = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
   auth = open('runkeeper_auth', 'r')
   auths = auth.readlines()
   runsSet = []
   for token in auths:
-    request = urllib2.Request("https://api.runkeeper.com/fitnessActivities?page=0&pageSize=1000", 
-                              headers={"Authorization" : "Bearer %s" % token, 
-                                       "Accept": "application/vnd.com.runkeeper.FitnessActivityFeed+json"})
-    contents = urllib2.urlopen(request).read()
-    runsSet.append(json.loads(contents))
+    runsSet.append(fetchActivities(token))
 
   type = "Running"
   if len(sys.argv) > 1:
@@ -53,7 +61,6 @@ def main():
   directory = "/tmp/runs-%s-%s" % (type, date)
   os.makedirs(directory)
 
-  mileToKm = 1.609344
   minDistance = 10000
   maxDistance = 0
   minSpeed = 10000
@@ -128,9 +135,9 @@ def main():
           envelopeY.append(run["l"])
           envelopeLineX.append(run["s"])
           envelopeLineY.append(run["l"])
-          plt.annotate("%.02fmi, %s" % (run["l"], secondsToString(run["t"])),
+          plt.annotate("%.02fmi, %s, %.02f" % (run["l"], secondsToString(run["t"]), run["s"]),
                        xy = (run["s"], run["l"]),
-                       xytext = (-5, 5),
+                       xytext = (-50, 5),
                        textcoords = 'offset points',
                        ha = "left", va = "bottom")
         
@@ -152,14 +159,20 @@ def main():
       if j == len(unsortedRuns):
         envelopeXs.append(envelopeLineX)
         envelopeYs.append(envelopeLineY)
-        print "User %s\nBy recency:" % i
-        for timeSortedRun in unsortedRuns:
-          print timeSortedRun["p"]
-        print "\nBy distance:"
-        for distanceSortedRun in sortedRuns:
-          print distanceSortedRun["p"]
-      xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1])
-      ylim([max(0, minDistance - 0.1), maxDistance + 0.1])
+        if printByDistance or printByRecency:
+          print "User %s\n" % i
+        if printByDistance:
+          print "By distance:"
+          for distanceSortedRun in sortedRuns:
+            print distanceSortedRun["p"]
+          print
+        if printByRecency:
+          print "By recency:"
+          for timeSortedRun in unsortedRuns:
+            print timeSortedRun["p"]
+          print
+      xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1 * (maxSpeed - minSpeed)])
+      ylim([max(0, minDistance - 0.1), maxDistance + 0.1 * (maxDistance - minDistance)])
       plot(envelopeLineX, envelopeLineY, 'y.', ms=0, linewidth=2.0, linestyle=':')
       plot(envelopeX, envelopeY, 'y.', ms=15)
       plot(restX, restY, 'b.', ms=15)
@@ -168,9 +181,9 @@ def main():
       title("%s up to %s" % (type, nextRun["d"]))
       xlabel("miles/h")
       ylabel("miles")
-      plt.annotate("%.02fmi, %s" % (nextRun["l"], secondsToString(nextRun["t"])),
+      plt.annotate("%.02fmi, %s, %.02f" % (nextRun["l"], secondsToString(nextRun["t"]), nextRun["s"]),
                    xy = (nextRun["s"], nextRun["l"]),
-                   xytext = (-5, 5),
+                   xytext = (-50, 5),
                    textcoords = 'offset points',
                    ha = "left", va = "bottom")
       color = 'g.'
@@ -178,13 +191,14 @@ def main():
         color = 'r.'
       plot(currentX, currentY, color, ms=15)
       savefig('%s/%s/%s.png' % (directory, i, j))
-    viewers.append(subprocess.Popen(['eog', "%s/%s/%s.png" % (directory, i, j)]))
+    if openGraphs:
+      viewers.append(subprocess.Popen(['eog', "%s/%s/%s.png" % (directory, i, j)]))
     print
   
-  if len(envelopeXs) > 1:
+  if openEnvelopes and len(envelopeXs) > 1:
     figure(figures + 1, figsize=(8,8))
-    xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1])
-    ylim([max(0, minDistance - 0.1), maxDistance + 0.1])
+    xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1 * (maxSpeed - minSpeed)])
+    ylim([max(0, minDistance - 0.1), maxDistance + 0.1 * (maxDistance - minDistance)])
     lineColors = [ 'g.', 'b.', 'y.', 'r.' ]
     for ii in range(0, len(envelopeXs)):
       plot(envelopeXs[ii], envelopeYs[ii], lineColors[ii % len(lineColors)], ms=0, linewidth=2.0, linestyle=':')
