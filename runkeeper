@@ -36,14 +36,15 @@ def paddedSecondsToString(t):
   return s
 
 def fetchActivities(token):
-  request = urllib2.Request("https://api.runkeeper.com/fitnessActivities?page=0&pageSize=1000", 
-                            headers={"Authorization" : "Bearer %s" % token, 
+  request = urllib2.Request("https://api.runkeeper.com/fitnessActivities?page=0&pageSize=1000",
+                            headers={"Authorization" : "Bearer %s" % token,
                                      "Accept": "application/vnd.com.runkeeper.FitnessActivityFeed+json"})
   return json.loads(urllib2.urlopen(request).read())
 
 def main():
   openGraphs = True
-  openEnvelopes = openGraphs
+  compareEnvelopes = openGraphs
+  envelopesHistory = openGraphs
   printByDistance = True
   printByRecency = True
 
@@ -85,20 +86,27 @@ def main():
       unsortedRuns.append(runTuple)
     unsortedRunsSet.append(unsortedRuns)
 
+  os.makedirs("%s/envelopes" % directory)
   viewers = []
   envelopeXs = []
   envelopeYs = []
-  i = 0
+  historicalEnvelopesXs = []
+  historicalEnvelopesYs = []
+  for runs in runsSet:
+    historicalEnvelopesXs.append([])
+    historicalEnvelopesYs.append([])
+  user = 0
   figures = 0
   for unsortedRuns in unsortedRunsSet:
-    i += 1
+    user += 1
     if len(unsortedRuns) == 0:
-      print "No runs for user %s.\n" % i
+      print "No runs for user %s.\n" % user
       continue
-    os.makedirs("%s/%s" % (directory, i))
+    os.makedirs("%s/%s" % (directory, user))
     j = 0
     sortedByTimeRuns = reversed(unsortedRuns)
     runSet = []
+    lastDate = ''
     for nextRun in sortedByTimeRuns:
       j += 1
       figures += 1
@@ -140,7 +148,7 @@ def main():
                        xytext = (-50, 5),
                        textcoords = 'offset points',
                        ha = "left", va = "bottom")
-        
+
         else:
           restY.append(run["l"])
           restX.append(run["s"])
@@ -156,11 +164,18 @@ def main():
                               color)
       envelopeLineX.append(bestSpeed)
       envelopeLineY.append(0)
+      currentDate = ' '.join(nextRun["d"].split()[2:4])
+      if lastDate == '':
+        lastDate = currentDate
+      if j == len(unsortedRuns) or currentDate != lastDate:
+        historicalEnvelopesXs[user - 1].append(envelopeLineX)
+        historicalEnvelopesYs[user - 1].append(envelopeLineY)
+        lastDate = currentDate
       if j == len(unsortedRuns):
         envelopeXs.append(envelopeLineX)
         envelopeYs.append(envelopeLineY)
         if printByDistance or printByRecency:
-          print "User %s\n" % i
+          print "User %s\n" % user
         if printByDistance:
           print "By distance:"
           for distanceSortedRun in sortedRuns:
@@ -190,12 +205,23 @@ def main():
       if envelopeLastRun:
         color = 'r.'
       plot(currentX, currentY, color, ms=15)
-      savefig('%s/%s/%s.png' % (directory, i, j))
+      savefig('%s/%s/%s.png' % (directory, user, j))
     if openGraphs:
-      viewers.append(subprocess.Popen(['eog', "%s/%s/%s.png" % (directory, i, j)]))
+      viewers.append(subprocess.Popen(['eog', "%s/%s/%s.png" % (directory, user, j)]))
+    if envelopesHistory:
+      figures += 1
+      figure(figures, figsize=(8,8))
+      xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1 * (maxSpeed - minSpeed)])
+      ylim([max(0, minDistance - 0.1), maxDistance + 0.1 * (maxDistance - minDistance)])
+      lineColors = [ 'g.', 'b.', 'y.', 'r.' ]
+      for i in range(0, len(historicalEnvelopesXs[user - 1])):
+        plot(historicalEnvelopesXs[user - 1][i], historicalEnvelopesYs[user - 1][i], lineColors[i % len(lineColors)], ms=0, linewidth=2.0, linestyle=':')
+      xlabel("miles/h")
+      ylabel("miles")
+      savefig('%s/envelopes/%s.png' % (directory, user))
     print
-  
-  if openEnvelopes and len(envelopeXs) > 1:
+
+  if compareEnvelopes and len(envelopeXs) > 1:
     figure(figures + 1, figsize=(8,8))
     xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1 * (maxSpeed - minSpeed)])
     ylim([max(0, minDistance - 0.1), maxDistance + 0.1 * (maxDistance - minDistance)])
@@ -204,10 +230,11 @@ def main():
       plot(envelopeXs[ii], envelopeYs[ii], lineColors[ii % len(lineColors)], ms=0, linewidth=2.0, linestyle=':')
     xlabel("miles/h")
     ylabel("miles")
-    os.makedirs("%s/envelopes" % directory)
-    savefig('%s/envelopes/envelopes.png' % directory)
-    viewers.append(subprocess.Popen(['eog', "%s/envelopes/envelopes.png" % directory]))
-  
+    savefig('%s/envelopes/comparison.png' % directory)
+    viewers.append(subprocess.Popen(['eog', "%s/envelopes/comparison.png" % directory]))
+  elif len(envelopeXs) == 1:
+    viewers.append(subprocess.Popen(['eog', "%s/envelopes/1.png" % directory]))
+
   print("Images directories under %s" % directory)
   for viewer in viewers:
     viewer.wait()
