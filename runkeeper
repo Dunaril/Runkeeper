@@ -86,15 +86,18 @@ def main():
       unsortedRuns.append(runTuple)
     unsortedRunsSet.append(unsortedRuns)
 
-  os.makedirs("%s/envelopes" % directory)
+  for i in range(1, len(runsSet) + 1):
+    os.makedirs("%s/envelopes-%s" % (directory, i))
   viewers = []
   envelopeXs = []
   envelopeYs = []
   historicalEnvelopesXs = []
   historicalEnvelopesYs = []
+  envelopeMonths = []
   for runs in runsSet:
     historicalEnvelopesXs.append([])
     historicalEnvelopesYs.append([])
+    envelopeMonths.append([])
   user = 0
   figures = 0
   for unsortedRuns in unsortedRunsSet:
@@ -170,6 +173,7 @@ def main():
       if j == len(unsortedRuns) or currentDate != lastDate:
         historicalEnvelopesXs[user - 1].append(envelopeLineX)
         historicalEnvelopesYs[user - 1].append(envelopeLineY)
+        envelopeMonths[user - 1].append(lastDate)
         lastDate = currentDate
       if j == len(unsortedRuns):
         envelopeXs.append(envelopeLineX)
@@ -206,22 +210,28 @@ def main():
         color = 'r.'
       plot(currentX, currentY, color, ms=15)
       savefig('%s/%s/%s.png' % (directory, user, j))
+
     if openGraphs:
       viewers.append(subprocess.Popen(['eog', "%s/%s/%s.png" % (directory, user, j)]))
-    if envelopesHistory:
+    print
+
+    for month in range(0, len(historicalEnvelopesXs[user - 1])):
       figures += 1
       figure(figures, figsize=(8,8))
+      title("%s envelopes for each month up to %s" % (type, envelopeMonths[user - 1][month]))
       xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1 * (maxSpeed - minSpeed)])
       ylim([max(0, minDistance - 0.1), maxDistance + 0.1 * (maxDistance - minDistance)])
       lineColors = [ 'g.', 'b.', 'y.', 'r.' ]
-      for i in range(0, len(historicalEnvelopesXs[user - 1])):
+      for i in range(0, month + 1):
         plot(historicalEnvelopesXs[user - 1][i], historicalEnvelopesYs[user - 1][i], lineColors[i % len(lineColors)], ms=0, linewidth=2.0, linestyle=':')
       xlabel("miles/h")
       ylabel("miles")
-      savefig('%s/envelopes/%s.png' % (directory, user))
-    print
+      savefig('%s/envelopes-%s/%s.png' % (directory, user, month))
 
-  if compareEnvelopes and len(envelopeXs) > 1:
+    if envelopesHistory:
+      viewers.append(subprocess.Popen(['eog', "%s/envelopes-%s/%s.png" % (directory, user, len(historicalEnvelopesXs[user - 1]) - 1)]))
+
+  if len(envelopeXs) > 1:
     figure(figures + 1, figsize=(8,8))
     xlim([max(0, minSpeed - 0.1), maxSpeed + 0.1 * (maxSpeed - minSpeed)])
     ylim([max(0, minDistance - 0.1), maxDistance + 0.1 * (maxDistance - minDistance)])
@@ -230,10 +240,9 @@ def main():
       plot(envelopeXs[ii], envelopeYs[ii], lineColors[ii % len(lineColors)], ms=0, linewidth=2.0, linestyle=':')
     xlabel("miles/h")
     ylabel("miles")
-    savefig('%s/envelopes/comparison.png' % directory)
-    viewers.append(subprocess.Popen(['eog', "%s/envelopes/comparison.png" % directory]))
-  elif len(envelopeXs) == 1:
-    viewers.append(subprocess.Popen(['eog', "%s/envelopes/1.png" % directory]))
+    savefig('%s/comparison.png' % directory)
+    if compareEnvelopes:
+      viewers.append(subprocess.Popen(['eog', "%s/comparison.png" % directory]))
 
   print("Images directories under %s" % directory)
   for viewer in viewers:
